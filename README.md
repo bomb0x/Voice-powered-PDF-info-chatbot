@@ -8,11 +8,9 @@ This project is designed to create a PDF-based knowledge assistant that can:
 
 3. Serve a web-based interface that allows users to:
 
-Ask questions about the PDF content.
-
-Transcribe audio to text.
-
-Convert text to speech.
+   - Ask questions about the PDF content.
+   - Transcribe audio to text.
+   - Convert text to speech.
 
 ## Install dependencies
 
