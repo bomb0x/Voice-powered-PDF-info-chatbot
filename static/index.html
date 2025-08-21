@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice-Powered PDF Info Chatbot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col py-2">
+    <div class="w-full md:w-1/2 mx-auto bg-white flex flex-col h-full p-4 rounded shadow">
+        <h1 class="text-xl font-bold mb-4">Voice-Powered PDF Info Chatbot</h1>
+        <div id="chat" class="flex-1 overflow-y-auto mb-4 border p-2"></div>
+        <button id="talkBtn" class="bg-blue-500 text-white px-4 py-2 rounded">🎤 Push to Talk</button>
+    </div>
+
+    <script>
+        const chat = document.getElementById("chat");
+        const talkBtn = document.getElementById("talkBtn");
+
+        function addMessage(sender, text){
+            const div = document.createElement("div");
+            div.className = sender === "user" ? "text-right text-blue-700" : "text-left text-gray-700";
+            div.textContent = text;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        async function askServer(question){
+            talkBtn.disabled = true;
+            talkBtn.textContent = "⏳ Thinking...";
+            try {
+                const res = await fetch("/ask", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({question})
+                });
+                const data = await res.json();
+                addMessage("bot", data.answer);
+                await playTTS(data.answer);
+            } catch (err) {
+                addMessage("bot", "⚠️ Error: could not get response.");
+                console.error(err);
+            } finally {
+                // re-enable button
+                talkBtn.disabled = false;
+                talkBtn.textContent = "🎤 Push to Talk";
+            }
+        }
+
+        async function playTTS(text) {
+            const res = await fetch("/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question: text })
+            });
+
+            const audioData = await res.arrayBuffer();
+            const blob = new Blob([audioData], { type: "audio/mpeg" });
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.play().catch(err => {
+                console.log("Autoplay blocked, fallback button created", err);
+
+                const playBtn = document.createElement("button");
+                playBtn.textContent = "▶ Play Audio";
+                playBtn.className = "bg-green-500 text-white px-2 py-1 rounded mt-2";
+                playBtn.onclick = () => audio.play();
+
+                chat.appendChild(playBtn);
+                chat.scrollTop = chat.scrollHeight;
+            });
+        }
+
+        let mediaRecorder;
+        let audioChunks = [];
+
+        talkBtn.onclick = async () => {
+            if (!mediaRecorder || mediaRecorder.state === "inactive") {
+                // Start recording
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = e => {
+                    audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const formData = new FormData();
+                    formData.append("file", audioBlob, "speech.webm");
+
+                    // Send to FastAPI Whisper endpoint
+                    const res = await fetch("/transcribe", {
+                        method: "POST",
+                        body: formData
+                    });
+
+                    const data = await res.json();
+                    const question = data.text;
+                    addMessage("user", question);
+                    askServer(question);
+                };
+
+                mediaRecorder.start();
+                talkBtn.textContent = "⏹ Stop Recording";
+            } else {
+                // Stop recording
+                mediaRecorder.stop();
+                talkBtn.textContent = "🎤 Push to Talk";
+            }
+        };
+
+    </script>
+</body>
+</html>
